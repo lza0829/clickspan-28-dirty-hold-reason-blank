@@ -1,0 +1,14 @@
+{
+  "batch_id": "B-dirty-001",
+  "hits": [
+    {"id": "H6", "visitor_id": "V-1001", "event_ts": "2026-11-17T09:50:00Z", "page_path": "/checkout", "event_name": "view", "visitor_label": "访客甲"},
+    {"id": "H7", "visitor_id": "V-1001", "event_ts": "2026-11-17T09:51:00Z", "page_path": "/checkout", "event_name": "click"},
+    {"id": "H8", "visitor_id": "V-1003", "event_ts": "2026-11-17T10:00:00Z", "page_path": "/home", "event_name": "view", "visitor_label": "访客丙"},
+    {"id": "H9", "visitor_id": "V-1001", "event_ts": "2026-11-17T09:55:00Z", "page_path": "/pay", "event_name": "view"},
+    {"id": "D1", "visitor_id": "V-1001", "event_ts": "2026-11-17T23:59:00Z", "page_path": "/dirty-no-event", "event_name": null},
+    {"id": "D2", "visitor_id": "V-1001", "event_ts": "2026-11-17T23:58:00Z", "page_path": "   ", "event_name": "view"},
+    {"id": "D3", "visitor_id": null, "event_ts": "2026-11-17T23:57:00Z", "page_path": "/dirty-no-visitor", "event_name": "click"},
+    {"id": "D4", "visitor_id": "V-1002", "page_path": "/dirty-no-ts", "event_name": "view"},
+    {"id": "D5", "visitor_id": "V-1002", "event_ts": "2026-11-17T23:56:00Z", "page_path": "/dirty-no-name"}
+  ]
+}
