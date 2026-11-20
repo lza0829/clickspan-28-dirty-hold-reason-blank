@@ -40,8 +40,27 @@ CREATE TABLE IF NOT EXISTS quarantine (
   hold_key TEXT,
   visitor_id TEXT,
   reason TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  rule_version TEXT NOT NULL,
+  rule_snapshot_json TEXT NOT NULL,
   member_json TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  -- 硬约束：hold 成功必须固化非空原因码与规则版本快照（trim 拦截纯空白）
+  CHECK (
+    reason IS NOT NULL AND trim(reason) <> ''
+    AND reason_code IS NOT NULL AND trim(reason_code) <> ''
+    AND rule_version IS NOT NULL AND trim(rule_version) <> ''
+    AND rule_snapshot_json IS NOT NULL AND trim(rule_snapshot_json) <> ''
+  )
+);
+
+-- 规则版本登记（版本 ↔ 原因码对照，可核）：发布规则只追加新版本，从不改写旧行
+CREATE TABLE IF NOT EXISTS dirty_rule_versions (
+  version TEXT PRIMARY KEY,
+  seq INTEGER NOT NULL UNIQUE,
+  snapshot_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS ingest_batches (
@@ -66,10 +85,12 @@ CREATE TABLE IF NOT EXISTS session_proofs (
 def init_db():
     conn = connect()
     conn.executescript(SCHEMA)
-    # 旧库兜底：quarantine 新增批次/搁置键列（幂等）
-    from app.modules.dirty_hit_hold import ensure_schema
+    # 旧库兜底：quarantine 新增批次/搁置键/原因码/规则版本快照列（幂等）+ 不可变触发器
+    from app.modules.dirty_hit_hold import ensure_initial_rules, ensure_schema
 
     ensure_schema(conn)
+    # 幂等登记基线规则版本并置为当前收流版本
+    ensure_initial_rules(conn)
     row = conn.execute("SELECT value FROM settings WHERE key='idle_timeout_sec'").fetchone()
     if not row:
         conn.execute(

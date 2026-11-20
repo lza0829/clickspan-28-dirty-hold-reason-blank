@@ -1,7 +1,12 @@
 from fastapi import APIRouter, HTTPException
 
 from app.db import connect
-from app.modules.dirty_hit_hold import attestation
+from app.modules.dirty_hit_hold import (
+    attestation,
+    list_rule_versions,
+    publish_rules,
+    reason_attestation,
+)
 from app.seed import idle_timeout_sec
 from app.services import ingest as ingest_svc
 from app.services import sessions as sess_svc
@@ -61,32 +66,83 @@ def get_session(session_id: str):
 
 @router.get("/quarantine")
 def list_quarantine(batch_id: str | None = None):
-    """搁置页：含批次、搁置键、原因与原始 payload（member_json 原样返回）。"""
+    """搁置页：含批次、搁置键、固化原因/原因码/规则版本与原始 payload（member_json 原样返回）。"""
     conn = connect()
     try:
+        cols = (
+            "id, batch_id, hold_key, visitor_id, reason, reason_code, "
+            "rule_version, rule_snapshot_json, member_json, created_at"
+        )
         if batch_id:
             rows = conn.execute(
-                """
-                SELECT id, batch_id, hold_key, visitor_id, reason, member_json, created_at
-                FROM quarantine WHERE batch_id=? ORDER BY id DESC
-                """,
+                f"SELECT {cols} FROM quarantine WHERE batch_id=? ORDER BY id DESC",
                 (batch_id,),
             ).fetchall()
         else:
             rows = conn.execute(
-                """
-                SELECT id, batch_id, hold_key, visitor_id, reason, member_json, created_at
-                FROM quarantine ORDER BY id DESC
-                """
+                f"SELECT {cols} FROM quarantine ORDER BY id DESC"
             ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
+@router.get("/dirty-hold/reason-attestation")
+def dirty_hold_reason_attestation(batch_id: str | None = None):
+    """hold 原因核证（基线所无的新增只读接口）。
+
+    逐行给脏键、reason、reason_code、规则版本、快照对照与结论；
+    全部读 hold 行固化值与规则版本登记表，任何路径都不允许改写旧 hold。
+    """
+    conn = connect()
+    try:
+        data = reason_attestation(conn, batch_id)
+        if not data.get("found"):
+            raise HTTPException(404, "批次不存在")
+        return data
+    finally:
+        conn.close()
+
+
+@router.get("/dirty-hold/rules")
+def dirty_hold_rules():
+    """规则页：当前生效版本与全部历史版本（版本 ↔ 原因码对照），只读。"""
+    conn = connect()
+    try:
+        versions = list_rule_versions(conn)
+        current = versions[0] if versions else None
+        # versions 按 seq 倒序；当前版本以 settings 指针为准，避免与排序假设耦合
+        cur_row = conn.execute(
+            "SELECT value FROM settings WHERE key='dirty_rule_version'"
+        ).fetchone()
+        current_version = cur_row["value"] if cur_row else (current["version"] if current else None)
+        return {"current_version": current_version, "versions": versions}
+    finally:
+        conn.close()
+
+
+@router.put("/dirty-hold/rules")
+def put_dirty_hold_rules(body: dict):
+    """规则页发布新版本：只追加登记并切换当前指针，只影响之后收流，不回溯旧 hold。"""
+    fields = body.get("required_fields")
+    if not isinstance(fields, list) or not fields:
+        raise HTTPException(400, "required_fields 必须为非空数组")
+    note = str(body.get("note", ""))[:200]
+    conn = connect()
+    try:
+        try:
+            rules = publish_rules(conn, fields, note=note)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        conn.commit()
+        return {"current_version": rules["version"], "rule": rules}
+    finally:
+        conn.close()
+
+
 @router.get("/dirty-hold/attestation")
 def dirty_hold_attestation(batch_id: str | None = None):
-    """脏点核证（只读）：批次/搁置键/原因/正式写入数/末击点是否未漂。"""
+    """脏点核证（只读）：批次/搁置键/固化原因版本/正式写入数/末击点是否未漂。"""
     conn = connect()
     try:
         data = attestation(conn, batch_id)

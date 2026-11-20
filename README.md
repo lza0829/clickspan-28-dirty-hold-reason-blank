@@ -35,16 +35,26 @@ npm run dev
 
 缺 `visitor_id` / `event_ts` / `page_path` / `event_name`（缺失、null、纯空白）的击点处理：
 
-- **落库形态（择一）**：搁置表挂 payload JSON —— 写入 `quarantine`，`member_json` 保存
-  原始 payload，另有 `batch_id`、`hold_key`、`reason` 列；不使用 `hits.hold` 标记。
-- **失败闭（择一）**：入口校验分流 —— 收流入口逐点校验，脏点即剔入搁置，合法点才写
+- **落库形态（择一）**：**hold 行不可变 reason + 规则版本快照列** —— 写入 `quarantine`，
+  `member_json` 保存原始 payload，另有 `batch_id`、`hold_key`、非空 `reason`（原因文案）、
+  非空 `reason_code`（原因码）、`rule_version` 与 `rule_snapshot_json`（入 hold 当时的
+  规则版本快照）；不使用 `hits.hold` 标记。规则版本登记在 `dirty_rule_versions`
+  （版本 ↔ 原因码对照，只追加不可改）。
+- **失败闭（择一）**：入口校验分流 —— 收流入口按**当前规则版本**逐点校验，脏点即剔入
+  搁置并在同事务写死原因与版本快照（缺一回滚，DB CHECK + 触发器双拦），合法点才写
   正式 hits 并推进 open 会话末击点；整批单事务，意外异常整趟回滚。
 - 脏点不进正式成员、不改 `hit_count`、不更新末击点 `ended_at`；禁止只打日志。
+- **不可变**：`quarantine` 的 reason / reason_code / rule_version / rule_snapshot_json
+  由 BEFORE UPDATE 触发器锁定，规则页发布新版本只追加登记并切换当前指针，
+  **只影响之后收流，绝不回溯改写旧 hold**；核证与搁置页读同一固化列，不可能分叉。
 
 | 接口 | 说明 |
 | --- | --- |
-| `GET /api/quarantine?batch_id=` | 搁置记录（含可展开 payload、搁置键、原因） |
-| `GET /api/dirty-hold/attestation?batch_id=` | 只读核证：批次、搁置键、原因、正式写入数、末击点是否未漂 |
+| `GET /api/quarantine?batch_id=` | 搁置记录（payload、搁置键、固化原因/原因码/规则版本快照） |
+| `GET /api/dirty-hold/attestation?batch_id=` | 只读核证：批次、搁置键、固化原因版本、正式写入数、末击点是否未漂 |
+| `GET /api/dirty-hold/reason-attestation?batch_id=` | **hold 原因核证（只读，基线所无）**：逐行脏键、reason、reason_code、规则版本、快照对照与结论 |
+| `GET /api/dirty-hold/rules` | 规则页：当前生效版本与全部历史版本（原因码对照） |
+| `PUT /api/dirty-hold/rules` | 发布新规则版本（追加登记，不回溯旧 hold） |
 | `POST /api/ingest/run` | 收流一批（夹具 `fixtures/ingest_batch.json` 混有脏行） |
 
 末击点未漂判定：会话当前 `ended_at` 必须等于其正式成员的 `MAX(event_ts)`；

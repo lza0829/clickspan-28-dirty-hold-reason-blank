@@ -3,15 +3,20 @@ import uuid
 from datetime import datetime, timezone
 
 from app.db import FIXTURES_DIR, connect
-from app.modules.dirty_hit_hold import hold_dirty_hit, validate_hit
+from app.modules.dirty_hit_hold import (
+    current_rules,
+    hold_dirty_hit,
+    validate_hit_reasons,
+)
 
 
 def run_batch() -> dict:
     """收流装载（入口校验分流）。
 
-    入口逐点校验必填字段：脏点剔入 quarantine（保留原始 payload 与原因），
-    合法点才允许写正式 hits / 更新 open 会话末击点时钟。整批单事务，
-    意外异常整趟回滚，脏点不可能改动正式计数或末击点。
+    入口按**当前规则版本**的必填字段逐点校验：脏点剔入 quarantine，并在同事务
+    写死非空 reason/reason_code 与当时规则版本快照（缺一则整趟回滚）；合法点才
+    允许写正式 hits / 更新 open 会话末击点时钟。整批单事务，意外异常整趟回滚，
+    脏点不可能改动正式计数或末击点，事后改规则也无法回溯已落 hold。
     """
     path = FIXTURES_DIR / "ingest_batch.json"
     if not path.exists():
@@ -23,6 +28,9 @@ def run_batch() -> dict:
     conn = connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
+
+        # 整批共用收流瞬间的规则版本快照；规则在此之后改版不影响本批任何 hold
+        rules = current_rules(conn)
 
         # 末击点时钟基线：批次前所有 open 会话的 ended_at 快照，供核证比对
         clock_before = {
@@ -36,10 +44,10 @@ def run_batch() -> dict:
         held = 0
         hold_keys = []
         for hit in hits:
-            # —— 入口校验分流：脏点进搁置，不触碰任何正式表 ——
-            reasons = validate_hit(hit)
+            # —— 入口校验分流：脏点进搁置（固化原因+版本快照），不触碰任何正式表 ——
+            reasons = validate_hit_reasons(hit, tuple(rules["required_fields"]))
             if reasons:
-                hold_key = hold_dirty_hit(conn, hit, reasons, batch_id, _now())
+                hold_key = hold_dirty_hit(conn, hit, reasons, batch_id, _now(), rules)
                 held += 1
                 hold_keys.append(hold_key)
                 continue
@@ -130,6 +138,7 @@ def run_batch() -> dict:
             "written": written,
             "held": held,
             "hold_keys": hold_keys,
+            "rule_version": rules["version"],
             "clock_before": clock_before,
         }
         conn.execute(

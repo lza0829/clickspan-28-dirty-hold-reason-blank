@@ -25,6 +25,18 @@ export const api = {
         ? `/api/dirty-hold/attestation?batch_id=${encodeURIComponent(batchId)}`
         : '/api/dirty-hold/attestation',
     ),
+  reasonAttestation: (batchId) =>
+    req(
+      batchId
+        ? `/api/dirty-hold/reason-attestation?batch_id=${encodeURIComponent(batchId)}`
+        : '/api/dirty-hold/reason-attestation',
+    ),
+  dirtyRules: () => req('/api/dirty-hold/rules'),
+  publishDirtyRules: (requiredFields, note) =>
+    req('/api/dirty-hold/rules', {
+      method: 'PUT',
+      body: JSON.stringify({ required_fields: requiredFields, note }),
+    }),
   ingest: () => req('/api/ingest/run', { method: 'POST' }),
   proofs: (sessionId) =>
     req(sessionId ? `/api/session-proofs?session_id=${encodeURIComponent(sessionId)}` : '/api/session-proofs'),

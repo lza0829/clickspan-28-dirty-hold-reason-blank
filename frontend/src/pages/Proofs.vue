@@ -6,6 +6,7 @@ const rows = ref([])
 const err = ref('')
 const att = ref(null)
 const attErr = ref('')
+const reasonAtt = ref(null)
 const batchId = ref('')
 
 async function loadProofs() {
@@ -20,10 +21,17 @@ async function loadProofs() {
 async function loadAttestation() {
   att.value = null
   attErr.value = ''
+  reasonAtt.value = null
+  const bid = batchId.value.trim() || undefined
   try {
-    att.value = await api.dirtyAttestation(batchId.value.trim() || undefined)
+    att.value = await api.dirtyAttestation(bid)
   } catch (e) {
     attErr.value = String(e.message || e)
+  }
+  try {
+    reasonAtt.value = await api.reasonAttestation(bid)
+  } catch (e) {
+    attErr.value = [attErr.value, String(e.message || e)].filter(Boolean).join('；')
   }
 }
 
@@ -86,17 +94,53 @@ onMounted(async () => {
 
       <table class="data">
         <thead>
-          <tr><th>搁置键</th><th>访客</th><th>原因</th><th>时刻</th></tr>
+          <tr><th>搁置键</th><th>访客</th><th>原因</th><th>原因码</th><th>规则版本</th><th>时刻</th></tr>
         </thead>
         <tbody>
           <tr v-for="r in att.held_rows" :key="r.id">
             <td class="mono">{{ r.hold_key || r.id }}</td>
             <td>{{ r.visitor_id || '（无）' }}</td>
             <td><span class="reason-tag">{{ r.reason }}</span></td>
+            <td class="mono">{{ r.reason_code }}</td>
+            <td class="mono">{{ r.rule_version }}</td>
             <td class="mono">{{ r.created_at }}</td>
           </tr>
           <tr v-if="!att.held_rows.length">
-            <td colspan="4" class="muted">本批无搁置点</td>
+            <td colspan="6" class="muted">本批无搁置点</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>hold 原因核证（只读，与搁置页同源）</h2>
+      <p class="muted">
+        逐行核：脏键、固化原因与原因码、入 hold 时的规则版本快照与登记表是否一致。
+        数据全部读 hold 行固化值，规则事后改版不会改变本结论。
+      </p>
+      <p v-if="reasonAtt">
+        总体结论：
+        <strong :class="reasonAtt.passed ? 'ok' : 'err'">
+          {{ reasonAtt.passed ? '全部通过：原因非空且版本快照可核' : '不通过：存在原因/版本分叉' }}
+        </strong>
+      </p>
+      <table v-if="reasonAtt?.items?.length" class="data">
+        <thead>
+          <tr>
+            <th>脏键</th><th>reason</th><th>reason_code</th><th>规则版本</th>
+            <th>快照对照</th><th>结论</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(it, i) in reasonAtt.items" :key="i">
+            <td class="mono">{{ it.dirty_key }}</td>
+            <td><span class="reason-tag">{{ it.reason }}</span></td>
+            <td class="mono">{{ it.reason_code }}</td>
+            <td class="mono">{{ it.rule_version }}</td>
+            <td>
+              <span :class="it.snapshot_match ? 'ok' : 'err'">
+                {{ it.snapshot_match ? '与登记表一致' : '快照不一致' }}
+              </span>
+            </td>
+            <td :class="it.passed ? 'ok' : 'err'">{{ it.conclusion }}</td>
           </tr>
         </tbody>
       </table>

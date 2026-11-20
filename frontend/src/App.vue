@@ -31,6 +31,7 @@ onMounted(async () => {
       <nav class="mast-nav">
         <router-link to="/">织机</router-link>
         <router-link to="/ingest">收流</router-link>
+        <router-link to="/dirty-rules">规则</router-link>
         <router-link to="/quarantine">搁置</router-link>
         <router-link to="/proofs">核证</router-link>
         <router-link to="/settings">切窗</router-link>

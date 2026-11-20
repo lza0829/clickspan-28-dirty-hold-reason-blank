@@ -34,6 +34,10 @@ async function run() {
 
     <div v-if="result?.ok" class="ingest-report">
       <h2>批次报告 <span class="mono muted">{{ result.report.batch_id }}</span></h2>
+      <p class="muted">
+        收流规则版本：<span class="mono reason-tag">{{ result.report.rule_version }}</span>
+        （脏点原因与该版本快照一同固化，事后改规则不回溯）
+      </p>
       <div class="stats">
         <div class="stat"><b>{{ result.report.input }}</b><span>输入击点</span></div>
         <div class="stat"><b class="ok">{{ result.report.written }}</b><span>正式写入</span></div>
